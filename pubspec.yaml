@@ -1,0 +1,44 @@
+name: crmapp
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+2
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  numberpicker: ^2.1.1
+  go_router: ^17.0.1
+  supabase_flutter: ^2.12.0
+  url_strategy: ^0.3.0
+  intl: ^0.20.2
+  flutter_riverpod: ^2.5.1
+
+  # PDF & Printing
+  pdf: ^3.10.7
+  printing: ^5.11.1
+  image_picker: ^1.2.1
+  dropdown_search: ^5.0.6
+  file_picker: ^8.1.2
+
+
+dependency_overrides:
+  app_links: ^7.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # ✅ ASSETS GO HERE (NOT IN DEPENDENCIES)
+  assets:
+    - assets/logo.png
+    - assets/fonts/Roboto-Regular.ttf
