@@ -6,7 +6,6 @@ import 'package:crmapp/stocks/stocks_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-
 import 'accounts_model.dart';
 import 'accounts_provider.dart';
 import 'selected_invoice_provider.dart';
@@ -39,6 +38,8 @@ class _AccountsState extends ConsumerState<Accounts> {
   int _currentPage = 0;
   bool _hasMore = true;
   bool _isLoading = false;
+  bool _initialLoadScheduled = false;
+  String? _loadError;
 
   final List<InvoiceModel> invoices = [];
 
@@ -87,20 +88,19 @@ class _AccountsState extends ConsumerState<Accounts> {
   Future<void> _loadInvoices({bool reset = false}) async {
     if (_repository == null || _isLoading) return;
 
-    // ✅ ALWAYS allow reset
     if (reset) {
       _currentPage = 0;
       _hasMore = true;
-
-      setState(() {
-        invoices.clear();
-      });
+      _loadError = null;
+      invoices.clear();
     }
 
-    // ❌ only block when NOT resetting
     if (!_hasMore && !reset) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
 
     try {
       final result = await _repository!.fetchInvoices(
@@ -138,9 +138,12 @@ class _AccountsState extends ConsumerState<Accounts> {
         if (_hasMore) _currentPage++;
       });
     } catch (e) {
-      debugPrint("❌ LOAD INVOICES ERROR: $e");
+      debugPrint('LOAD INVOICES ERROR: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _loadError = e.toString();
+        });
       }
     }
   }
@@ -154,6 +157,7 @@ class _AccountsState extends ConsumerState<Accounts> {
       invoices.clear();
       _hasMore = true;
       _isLoading = false;
+      _loadError = null;
     });
 
     _loadInvoices(reset: true);
@@ -165,20 +169,90 @@ class _AccountsState extends ConsumerState<Accounts> {
     final stocksRepo = ref.watch(stocksRepositoryProvider);
 
     if (repo == null) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0E0E0E),
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: const Color(0xFF0E0E0E),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Business data is unavailable. Sign in again or reload the app.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+        ),
       );
     }
 
     _repository ??= repo;
     _stocksRepository ??= stocksRepo;
 
-    if (invoices.isEmpty && !_isLoading) {
-      _loadInvoices(reset: true);
+    if (invoices.isEmpty && !_isLoading && !_initialLoadScheduled) {
+      _initialLoadScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && invoices.isEmpty && !_isLoading && _loadError == null) {
+          _loadInvoices(reset: true);
+        }
+      });
     }
 
     final screenWidth = MediaQuery.of(context).size.width;
+
+    // The invoice list and preview need roughly 900 px to sit side by side.
+    // On smaller windows, show one pane at a time and let the user navigate
+    // between the list and the selected invoice.
+    if (screenWidth < 1000) {
+      final selectedInvoiceId = ref.watch(selectedInvoiceIdProvider);
+      return Scaffold(
+        backgroundColor: const Color(0xFF0E0E0E),
+        floatingActionButton: selectedInvoiceId == null
+            ? FloatingActionButton.extended(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CreateInvoicePage()),
+                ),
+                icon: const Icon(Icons.add),
+                label: const Text('Add invoice'),
+              )
+            : null,
+        body: SafeArea(
+          child: selectedInvoiceId != null
+              ? Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => ref
+                            .read(selectedInvoiceIdProvider.notifier)
+                            .state = null,
+                        icon: const Icon(Icons.arrow_back),
+                        label: const Text('All invoices'),
+                      ),
+                    ),
+                    const Expanded(child: InvoicePreviewPanel()),
+                  ],
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final searchWidth = (constraints.maxWidth * 0.42)
+                        .clamp(120.0, 280.0)
+                        .toDouble();
+                    return Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _header(searchWidth: searchWidth),
+                          const SizedBox(height: 16),
+                          Expanded(child: _table()),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFF0E0E0E),
@@ -264,7 +338,7 @@ class _AccountsState extends ConsumerState<Accounts> {
     );
   }
 
-  Widget _header() {
+  Widget _header({double searchWidth = 280}) {
     return Row(
       children: [
         const Text(
@@ -373,7 +447,7 @@ class _AccountsState extends ConsumerState<Accounts> {
         ),
         const Spacer(),
         SizedBox(
-          width: 280,
+          width: searchWidth,
           child: TextField(
             controller: _searchController,
             onSubmitted: (_) => _loadInvoices(reset: true),
@@ -388,6 +462,35 @@ class _AccountsState extends ConsumerState<Accounts> {
   Widget _table() {
     if (invoices.isEmpty && _isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (invoices.isEmpty && _loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Could not load invoices',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              SelectableText(
+                _loadError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _loadInvoices(reset: true),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     if (invoices.isEmpty) {
@@ -688,7 +791,26 @@ class _AccountsState extends ConsumerState<Accounts> {
   // EDIT INVOICE DIALOG
   // ─────────────────────────────────────────
   Future<void> _showEditDialog(InvoiceModel invoice) async {
-    final customerCtrl = TextEditingController(text: invoice.customerName);
+    String? fetchedCustomerName;
+    if (invoice.customerId != null && _repository != null) {
+      try {
+        fetchedCustomerName = await _repository!.fetchCustomerName(
+          invoice.customerId!,
+        );
+      } catch (error) {
+        debugPrint('Could not fetch customer name: $error');
+      }
+    }
+    if (!mounted) return;
+
+    final fallbackName = invoice.customerName.startsWith('Customer #')
+        ? ''
+        : invoice.customerName;
+    final customerCtrl = TextEditingController(
+      text: fetchedCustomerName?.trim().isNotEmpty == true
+          ? fetchedCustomerName!.trim()
+          : fallbackName,
+    );
     final notesCtrl = TextEditingController(text: '');
     final totalCtrl = TextEditingController(
       text: invoice.grandTotal.toStringAsFixed(0),

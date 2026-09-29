@@ -13,6 +13,18 @@ class AccountsRepository extends BaseRepository {
         requiredModule: AppModules.accounts,
       );
 
+  Future<String?> fetchCustomerName(int customerId) async {
+    ensureModuleEnabled();
+
+    final customer = await client
+        .from('Customers')
+        .select('customer_name')
+        .eq('id', customerId)
+        .maybeSingle();
+
+    return customer?['customer_name']?.toString();
+  }
+
   // ===============================
   // LIST INVOICES
   // ===============================
@@ -29,89 +41,169 @@ class AccountsRepository extends BaseRepository {
     final to = from + pageSize - 1;
 
     var query = client
-        .from('all_invoices')
-        .select('*')
-        .eq('business_id', business.id); // ✅ FIXED
+        .from('Invoices')
+        .select(
+          'id, created_at, invoices_no, customer_ref, invoices_date, '
+          'invoices_grandTotal, payment_amount, isCancelled, business_ref',
+        )
+        .eq('business_ref', business.id);
 
     if (search != null && search.isNotEmpty) {
+      var customerIds = <int>[];
+      try {
+        final matchingCustomers = await client
+            .from('Customers')
+            .select('id')
+            .eq('business_ref', business.id)
+            .ilike('customer_name', '%$search%');
+        customerIds = (matchingCustomers as List)
+            .map((row) => row['id'] as int)
+            .toList();
+      } catch (error) {
+        // Keep invoice-number search available if customer search is restricted.
+        print('ACCOUNTS: customer search unavailable: $error');
+      }
+
+      final numberFilter = 'invoices_no.ilike.%$search%';
       query = query.or(
-        'inv_number.ilike.%$search%,'
-        'customer_name.ilike.%$search%',
+        customerIds.isEmpty
+            ? numberFilter
+            : '$numberFilter,customer_ref.in.(${customerIds.join(',')})',
       );
     }
 
     if (fromDate != null) {
-      query = query.gte('date', fromDate.toIso8601String());
+      query = query.gte('invoices_date', fromDate.toIso8601String());
     }
 
     if (toDate != null) {
-      query = query.lt('date', toDate.toIso8601String());
+      query = query.lt('invoices_date', toDate.toIso8601String());
     }
 
     final data = await query
-        .order('createdtime', ascending: false)
+        .order('created_at', ascending: false)
         .range(from, to);
+    final sourceRows = List<Map<String, dynamic>>.from(data as List);
+    if (sourceRows.isEmpty) return const [];
 
-    final invoices = <InvoiceModel>[];
-
-    for (final row in (data as List)) {
-      final int invoiceId = row['invoice_id'];
-
-      final itemsRes = await client
-          .from('invoice_items')
-          .select('product_name, quantity, sale_price, total, stock_ref')
-          .eq('invoice_ref', invoiceId);
-
-      // Batch-fetch isSold from Stock for all linked stock items
-      final stockRefs = (itemsRes as List)
-          .map((e) => e['stock_ref'])
-          .whereType<int>()
-          .toList();
-
-      Map<int, bool> stockSoldMap = {};
-      if (stockRefs.isNotEmpty) {
-        final stockRes = await client
-            .from('Stock')
-            .select('id, isSold')
-            .inFilter('id', stockRefs);
-        stockSoldMap = {
-          for (final s in (stockRes as List))
-            (s['id'] as int): (s['isSold'] as bool? ?? true),
-        };
+    final customerRefs = sourceRows
+        .map((row) => row['customer_ref'])
+        .whereType<int>()
+        .toSet()
+        .toList();
+    final customerById = <int, Map<String, dynamic>>{};
+    if (customerRefs.isNotEmpty) {
+      try {
+        final customerRows = await client
+            .from('Customers')
+            .select('id, customer_name, customer_phone')
+            .eq('business_ref', business.id)
+            .inFilter('id', customerRefs);
+        for (final customer in customerRows as List) {
+          customerById[customer['id'] as int] =
+              Map<String, dynamic>.from(customer);
+        }
+      } catch (error) {
+        // Invoice rows should remain visible even if customer details are not.
+        print('ACCOUNTS: customer details unavailable: $error');
       }
+    }
 
-      final items = itemsRes.map((e) {
-        final ref = e['stock_ref'] as int?;
+    final invoiceRows = sourceRows.map((row) {
+      final customerRef = row['customer_ref'] as int?;
+      final customer = customerRef == null ? null : customerById[customerRef];
+      return <String, dynamic>{
+        ...row,
+        'invoice_id': row['id'],
+        'inv_number': row['invoices_no'],
+        'date': row['invoices_date'],
+        'invoices_grandTotal': row['invoices_grandTotal'],
+        'customer_name': customer?['customer_name'] ??
+            (customerRef == null ? '—' : 'Customer #$customerRef'),
+        'customer_phone': customer?['customer_phone'],
+      };
+    }).toList();
+
+    final invoiceIds = invoiceRows
+        .map((row) => row['invoice_id'] as int)
+        .toList();
+
+    // Load details in batches instead of making several sequential requests
+    // for every invoice on the page.
+    final itemRows = List<Map<String, dynamic>>.from(
+      await client
+          .from('invoice_items')
+          .select(
+            'invoice_ref, product_name, quantity, sale_price, total, stock_ref',
+          )
+          .inFilter('invoice_ref', invoiceIds),
+    );
+    final paymentRows = List<Map<String, dynamic>>.from(
+      await client
+          .from('Payments')
+          .select(
+            'invoice_reference, payment_mode, warranty_period, created_at',
+          )
+          .inFilter('invoice_reference', invoiceIds)
+          .order('created_at', ascending: false),
+    );
+
+    final itemRowsByInvoice = <int, List<Map<String, dynamic>>>{};
+    for (final item in itemRows) {
+      final invoiceId = item['invoice_ref'] as int?;
+      if (invoiceId != null) {
+        itemRowsByInvoice.putIfAbsent(invoiceId, () => []).add(item);
+      }
+    }
+
+    final paymentRowsByInvoice = <int, List<Map<String, dynamic>>>{};
+    for (final payment in paymentRows) {
+      final invoiceId = payment['invoice_reference'] as int?;
+      if (invoiceId != null) {
+        paymentRowsByInvoice.putIfAbsent(invoiceId, () => []).add(payment);
+      }
+    }
+
+    final stockRefs = itemRows
+        .map((item) => item['stock_ref'])
+        .whereType<int>()
+        .toSet()
+        .toList();
+    final stockSoldMap = <int, bool>{};
+    if (stockRefs.isNotEmpty) {
+      final stockRows = await client
+          .from('Stock')
+          .select('id, isSold')
+          .inFilter('id', stockRefs);
+      for (final stock in stockRows as List) {
+        stockSoldMap[stock['id'] as int] = stock['isSold'] as bool? ?? true;
+      }
+    }
+
+    return invoiceRows.map((row) {
+      final invoiceId = row['invoice_id'] as int;
+      final items = (itemRowsByInvoice[invoiceId] ?? []).map((item) {
+        final stockRef = item['stock_ref'] as int?;
         return InvoiceItem.fromMap({
-          ...e,
-          'isSold': ref != null ? (stockSoldMap[ref] ?? true) : true,
+          ...item,
+          'isSold': stockRef != null ? (stockSoldMap[stockRef] ?? true) : true,
         });
       }).toList();
 
-      // Fetch the latest payment to get the mode of payment and warranty
-      final paymentsRes = await client
-          .from('Payments')
-          .select('payment_mode, warranty_period')
-          .eq('invoice_reference', invoiceId)
-          .order('created_at', ascending: false);
-
+      final payments = paymentRowsByInvoice[invoiceId] ?? [];
       final mutableRow = Map<String, dynamic>.from(row);
-      if (paymentsRes.isNotEmpty) {
-        mutableRow['payment_mode'] = paymentsRes[0]['payment_mode'];
-
-        final warrantyPayment = paymentsRes.firstWhere(
-          (p) =>
-              p['warranty_period'] != null &&
-              p['warranty_period'].toString().isNotEmpty,
-          orElse: () => paymentsRes.first,
+      if (payments.isNotEmpty) {
+        mutableRow['payment_mode'] = payments.first['payment_mode'];
+        final warrantyPayment = payments.firstWhere(
+          (payment) =>
+              payment['warranty_period'] != null &&
+              payment['warranty_period'].toString().isNotEmpty,
+          orElse: () => payments.first,
         );
         mutableRow['warranty'] = warrantyPayment['warranty_period'];
       }
-
-      invoices.add(InvoiceModel.fromMap(mutableRow, items: items));
-    }
-
-    return invoices;
+      return InvoiceModel.fromMap(mutableRow, items: items);
+    }).toList();
   }
 
   // ===============================
@@ -121,10 +213,29 @@ class AccountsRepository extends BaseRepository {
     ensureModuleEnabled();
 
     final invoiceJson = await client
-        .from('all_invoices')
-        .select('*')
-        .eq('invoice_id', invoiceId)
+        .from('Invoices')
+        .select(
+          'id, created_at, invoices_no, customer_ref, invoices_date, '
+          'invoices_grandTotal, payment_amount, isCancelled, business_ref',
+        )
+        .eq('id', invoiceId)
+        .eq('business_ref', business.id)
         .single();
+
+    final customerRef = invoiceJson['customer_ref'] as int?;
+    Map<String, dynamic>? customerJson;
+    if (customerRef != null) {
+      try {
+        customerJson = await client
+            .from('Customers')
+            .select('customer_name, customer_phone')
+            .eq('id', customerRef)
+            .eq('business_ref', business.id)
+            .maybeSingle();
+      } catch (error) {
+        print('ACCOUNTS: customer details unavailable: $error');
+      }
+    }
 
     final itemsRes = await client
         .from('invoice_items')
@@ -164,7 +275,16 @@ class AccountsRepository extends BaseRepository {
         .eq('invoice_reference', invoiceId)
         .order('created_at', ascending: false);
 
-    final mutableRow = Map<String, dynamic>.from(invoiceJson);
+    final mutableRow = <String, dynamic>{
+      ...invoiceJson,
+      'invoice_id': invoiceJson['id'],
+      'inv_number': invoiceJson['invoices_no'],
+      'date': invoiceJson['invoices_date'],
+      'invoices_grandTotal': invoiceJson['invoices_grandTotal'],
+      'customer_name': customerJson?['customer_name'] ??
+          (customerRef == null ? '—' : 'Customer #$customerRef'),
+      'customer_phone': customerJson?['customer_phone'],
+    };
     if (paymentsRes.isNotEmpty) {
       mutableRow['payment_mode'] = paymentsRes[0]['payment_mode'];
 
