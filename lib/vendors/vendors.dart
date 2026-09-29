@@ -76,6 +76,7 @@ class _VendorsState extends ConsumerState<Vendors> {
       vendors.add(VendorWithBalance(vendor: vendor, balance: balance));
     }
 
+    if (!mounted) return;
     setState(() {
       _hasMore = result.isNotEmpty;
       _isLoading = false;
