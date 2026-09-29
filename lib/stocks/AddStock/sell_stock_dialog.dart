@@ -210,6 +210,7 @@ class _SellStockDialogState extends ConsumerState<SellStockDialog> {
   final paidAmount = (result["amount"] ?? 0).toDouble();
   final method = result["method"];       
   final narration = result["narration"];
+  final warranty = result["warranty"];
 
   Navigator.pop(
     context,
@@ -225,6 +226,7 @@ class _SellStockDialogState extends ConsumerState<SellStockDialog> {
       paidAmount: paidAmount,
       paymentMethod: method,
       narration: narration,
+      warranty: warranty,
     ),
   );
 }

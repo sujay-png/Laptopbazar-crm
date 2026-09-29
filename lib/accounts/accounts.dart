@@ -1,6 +1,8 @@
 import 'package:crmapp/accounts/accounts_repository.dart';
 import 'package:crmapp/accounts/create%20invoice/create_invoice_page.dart';
 import 'package:crmapp/accounts/widgets/accounts_optimistic_provider.dart';
+import 'package:crmapp/stocks/stocks_provider.dart';
+import 'package:crmapp/stocks/stocks_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -25,7 +27,7 @@ class _AccountsState extends ConsumerState<Accounts> {
   bool _isDividerHovering = false;
   bool showLocalOnly = false;
   String? selectedVendorName;
-
+  StocksRepository? _stocksRepository;
   List<String> vendorNames = [];
   bool isVendorLoading = false;
 
@@ -82,67 +84,66 @@ class _AccountsState extends ConsumerState<Accounts> {
     }
   }
 
-Future<void> _loadInvoices({bool reset = false}) async {
-  if (_repository == null || _isLoading) return;
+  Future<void> _loadInvoices({bool reset = false}) async {
+    if (_repository == null || _isLoading) return;
 
-  // ✅ ALWAYS allow reset
-  if (reset) {
-    _currentPage = 0;
-    _hasMore = true;
+    // ✅ ALWAYS allow reset
+    if (reset) {
+      _currentPage = 0;
+      _hasMore = true;
 
-    setState(() {
-      invoices.clear();
-    });
-  }
-
-  // ❌ only block when NOT resetting
-  if (!_hasMore && !reset) return;
-
-  setState(() => _isLoading = true);
-
-  try {
-    final result = await _repository!.fetchInvoices(
-      search: _searchController.text,
-      page: _currentPage,
-    );
-
-    if (!mounted) return;
-
-    // 🔥 APPLY FILTER
-    List<InvoiceModel> filtered = result;
-
-    if (paymentFilter != null) {
-      filtered = result.where((invoice) {
-        if (paymentFilter == 'PAID') return invoice.isFullyPaid;
-        if (paymentFilter == 'PARTIAL') return invoice.isPartiallyPaid;
-        if (paymentFilter == 'UNPAID') {
-          return !invoice.isFullyPaid && !invoice.isPartiallyPaid;
-        }
-        return true;
-      }).toList();
+      setState(() {
+        invoices.clear();
+      });
     }
 
-    setState(() {
-      if (reset) {
-        invoices.clear();
-        invoices.addAll(filtered);
-      } else {
-        invoices.addAll(filtered);
+    // ❌ only block when NOT resetting
+    if (!_hasMore && !reset) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _repository!.fetchInvoices(
+        search: _searchController.text,
+        page: _currentPage,
+      );
+
+      if (!mounted) return;
+
+      // 🔥 APPLY FILTER
+      List<InvoiceModel> filtered = result;
+
+      if (paymentFilter != null) {
+        filtered = result.where((invoice) {
+          if (paymentFilter == 'PAID') return invoice.isFullyPaid;
+          if (paymentFilter == 'PARTIAL') return invoice.isPartiallyPaid;
+          if (paymentFilter == 'UNPAID') {
+            return !invoice.isFullyPaid && !invoice.isPartiallyPaid;
+          }
+          return true;
+        }).toList();
       }
 
-      _hasMore = result.length >= 20; // better logic
-      _isLoading = false;
+      setState(() {
+        if (reset) {
+          invoices.clear();
+          invoices.addAll(filtered);
+        } else {
+          invoices.addAll(filtered);
+        }
 
-      if (_hasMore) _currentPage++;
-    });
+        _hasMore = result.length >= 20; // better logic
+        _isLoading = false;
 
-  } catch (e) {
-    debugPrint("❌ LOAD INVOICES ERROR: $e");
-    if (mounted) {
-      setState(() => _isLoading = false);
+        if (_hasMore) _currentPage++;
+      });
+    } catch (e) {
+      debugPrint("❌ LOAD INVOICES ERROR: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
-}
 
   /// 🔁 CALLED AFTER PAYMENT
   void refreshInvoices() {
@@ -161,6 +162,7 @@ Future<void> _loadInvoices({bool reset = false}) async {
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(accountsRepositoryProvider);
+    final stocksRepo = ref.watch(stocksRepositoryProvider);
 
     if (repo == null) {
       return const Scaffold(
@@ -170,6 +172,7 @@ Future<void> _loadInvoices({bool reset = false}) async {
     }
 
     _repository ??= repo;
+    _stocksRepository ??= stocksRepo;
 
     if (invoices.isEmpty && !_isLoading) {
       _loadInvoices(reset: true);
@@ -240,7 +243,9 @@ Future<void> _loadInvoices({bool reset = false}) async {
                           width: 2,
                           decoration: BoxDecoration(
                             color: _isDividerHovering
-                                ? const Color(0xFFFFD54F).withValues(alpha: 0.65)
+                                ? const Color(
+                                    0xFFFFD54F,
+                                  ).withValues(alpha: 0.65)
                                 : Colors.grey.shade700,
                             borderRadius: BorderRadius.circular(4),
                           ),
@@ -400,6 +405,8 @@ Future<void> _loadInvoices({bool reset = false}) async {
         DataColumn(label: Text('Date')),
         DataColumn(label: Text('Total')),
         DataColumn(label: Text('Status')),
+        DataColumn(label: Text('Return')),
+        DataColumn(label: Text('Actions')),
       ],
       rows: List.generate(
         invoices.length,
@@ -413,6 +420,27 @@ Future<void> _loadInvoices({bool reset = false}) async {
             ),
             DataCell(Text('₹${invoices[i].grandTotal.toStringAsFixed(0)}')),
             DataCell(_statusChip(invoices[i])),
+            DataCell(_returnbutton(invoices[i])),
+            DataCell(
+              Row(
+                children: [
+                  Tooltip(
+                    message: 'Edit Invoice',
+                    child: IconButton(
+                      icon: const Icon(Icons.edit, color: Colors.white70),
+                      onPressed: () => _showEditDialog(invoices[i]),
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Delete Invoice',
+                    child: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.redAccent),
+                      onPressed: () => _showDeleteDialog(invoices[i]),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
           onTap: () {
             ref.read(selectedInvoiceIdProvider.notifier).state =
@@ -422,6 +450,200 @@ Future<void> _loadInvoices({bool reset = false}) async {
         ),
       ),
     );
+  }
+
+  Widget _returnbutton(InvoiceModel invoice) {
+    // Only show on fully-paid invoices
+    if (invoice.isPartiallyPaid || invoice.isUnpaid) {
+      return const SizedBox.shrink();
+    }
+
+    // Already returned — show a disabled chip
+    if (invoice.isReturned) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade700),
+        ),
+        child: const Text(
+          'Returned',
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    // Stock is back In Stock (isSold == false) — show Returned chip
+    final stockReturned =
+        invoice.items.isNotEmpty && invoice.items.every((item) => !item.isSold);
+    if (stockReturned) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade700),
+        ),
+        child: const Text(
+          'Returned',
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return ElevatedButton(
+      onPressed: () => _showReturnDialog(invoice),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: const Text(
+        'Return',
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
+  Future<void> _showReturnDialog(InvoiceModel invoice) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text(
+          'Return Invoice',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Invoice: ${invoice.invoiceNumber}',
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Reason for return',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: reasonController,
+              autofocus: true,
+              maxLines: 3,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'e.g. Defective product, customer changed mind…',
+                hintStyle: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                filled: true,
+                fillColor: const Color(0xFF2A2A2A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade700),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: Colors.grey.shade700),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.green),
+                ),
+                contentPadding: const EdgeInsets.all(12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey.shade400),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Return'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final reason = reasonController.text.trim();
+
+    if (_stocksRepository == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Repository not ready. Please wait.')),
+      );
+      return;
+    }
+
+    try {
+      await _stocksRepository!.returnInvoiceStock(
+        invoice.invoiceId,
+        reason: reason.isEmpty ? null : reason,
+      );
+
+      if (!mounted) return;
+
+      // ✅ Optimistic update — flip button to "Returned" instantly
+      final idx = invoices.indexWhere(
+        (inv) => inv.invoiceId == invoice.invoiceId,
+      );
+      if (idx != -1) {
+        setState(() {
+          invoices[idx] = invoices[idx].copyWith(
+            isReturned: true,
+            isCancelled: true,
+          );
+        });
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invoice returned — stock is back in stock'),
+        ),
+      );
+
+      // Background sync — keeps local state in sync with server
+      _loadInvoices(reset: true);
+    } catch (error, stackTrace) {
+      debugPrint('Return failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Return failed: $error')));
+    }
   }
 
   Widget _statusChip(InvoiceModel invoice) {
@@ -461,4 +683,290 @@ Future<void> _loadInvoices({bool reset = false}) async {
       ),
     );
   }
+
+  // ─────────────────────────────────────────
+  // EDIT INVOICE DIALOG
+  // ─────────────────────────────────────────
+  Future<void> _showEditDialog(InvoiceModel invoice) async {
+    final customerCtrl = TextEditingController(text: invoice.customerName);
+    final notesCtrl = TextEditingController(text: '');
+    final totalCtrl = TextEditingController(
+      text: invoice.grandTotal.toStringAsFixed(0),
+    );
+    DateTime selectedDate = invoice.invoiceDate;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocalState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Text(
+            'Edit Invoice',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Invoice number (read-only)
+                Text(
+                  'Invoice: ${invoice.invoiceNumber}',
+                  style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
+
+                // Customer Name — editable (updates Customers table)
+                _dialogLabel('Customer Name'),
+                const SizedBox(height: 6),
+                _dialogField(customerCtrl, hint: 'Customer name'),
+                const SizedBox(height: 16),
+
+                // Invoice Date
+                _dialogLabel('Invoice Date'),
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) {
+                      setLocalState(() => selectedDate = picked);
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2A2A2A),
+                      borderRadius: BorderRadius.circular(8),
+                      border:
+                          Border.all(color: Colors.grey.shade700),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          DateFormat('dd MMM yyyy').format(selectedDate),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        Icon(Icons.calendar_today,
+                            color: Colors.grey.shade400, size: 16),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Notes
+                _dialogLabel('Notes'),
+                const SizedBox(height: 6),
+                _dialogField(notesCtrl,
+                    hint: 'Additional notes\u2026', maxLines: 3),
+                const SizedBox(height: 16),
+
+                // Grand Total
+                _dialogLabel('Grand Total (₹)'),
+                const SizedBox(height: 6),
+                _dialogField(
+                  totalCtrl,
+                  hint: '0',
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel',
+                  style: TextStyle(color: Colors.grey.shade400)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (saved != true || !mounted) return;
+    if (_repository == null) return;
+
+    try {
+      await _repository!.updateInvoice(
+        invoiceId: invoice.invoiceId,
+        invoiceDate: selectedDate,
+        notes: notesCtrl.text.trim(),
+        grandTotal: double.tryParse(totalCtrl.text.trim()) ?? invoice.grandTotal,
+        customerId: invoice.customerId,
+        customerName: customerCtrl.text.trim(),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invoice updated successfully')),
+      );
+      _loadInvoices(reset: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update failed: $e')),
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // DELETE INVOICE DIALOG
+  // ─────────────────────────────────────────
+  Future<void> _showDeleteDialog(InvoiceModel invoice) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text(
+          'Delete Invoice',
+          style: TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to delete invoice',
+              style: TextStyle(color: Colors.grey.shade300),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              invoice.invoiceNumber,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3F1D1D),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Colors.redAccent, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This will also reset linked stock items back to available.',
+                      style: TextStyle(
+                          color: Colors.red.shade300, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: TextStyle(color: Colors.grey.shade400)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    if (_repository == null) return;
+
+    try {
+      await _repository!.deleteInvoice(invoice.invoiceId);
+
+      if (!mounted) return;
+
+      // Optimistic remove from list
+      setState(() {
+        invoices.removeWhere((inv) => inv.invoiceId == invoice.invoiceId);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invoice deleted')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // DIALOG HELPERS
+  // ─────────────────────────────────────────
+  Widget _dialogLabel(String text) => Text(
+        text,
+        style: const TextStyle(
+            color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500),
+      );
+
+  Widget _dialogField(
+    TextEditingController ctrl, {
+    String hint = '',
+    int maxLines = 1,
+    TextInputType keyboardType = TextInputType.text,
+  }) =>
+      TextField(
+        controller: ctrl,
+        maxLines: maxLines,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          filled: true,
+          fillColor: const Color(0xFF2A2A2A),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey.shade700),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey.shade700),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Colors.blue),
+          ),
+          contentPadding: const EdgeInsets.all(12),
+        ),
+      );
 }

@@ -494,6 +494,7 @@ class _StocksDashboardState extends ConsumerState<StocksDashboard> {
                                                     paidAmount: result.paidAmount,
                                                     paymentMethod: result.paymentMethod,
                                                     narration: result.narration,
+                                                    warranty: result.warranty,
                                                   );
                                                   _refreshStocks();
                                                 } catch (e) {

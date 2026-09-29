@@ -12,6 +12,7 @@ class SellStockResult {
   final String? paymentMethod;
   final double? paidAmount;
   final String? narration;
+  final String? warranty;
 
   SellStockResult({
     this.customerId,
@@ -19,9 +20,9 @@ class SellStockResult {
     this.newCustomerPhone,
     this.newCustomerEmail,
     required this.salePrice,
-    // Add these to the constructor
     this.paymentMethod,
     this.paidAmount,
     this.narration,
+    this.warranty,
   });
 }

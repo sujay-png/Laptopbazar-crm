@@ -127,7 +127,7 @@ class _CreateInvoicePageState
           error: (e, _) => Text(e.toString()),
           data: (list) =>
               DropdownButtonFormField<CustomerModel>(
-            initialValue: _selectedCustomer,
+            value: _selectedCustomer,
             hint: const Text('Select customer'),
             items: list
                 .map(

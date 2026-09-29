@@ -92,19 +92,32 @@ class InvoicePreviewPanel extends ConsumerWidget {
                             final repo = ref.read(accountsRepositoryProvider)!;
                             final business = ref.read(businessProvider)!;
 
-                            await repo.recordPayment(
-                              invoiceId: invoice.invoiceId,
-                              businessId: business.id,
-                              amount: result['amount'],
-                              method: result['method'],
-                              narration: result['narration'],
-                            );
+                            try {
+                              await repo.recordPayment(
+                                invoiceId: invoice.invoiceId,
+                                businessId: business.id,
+                                amount: result['amount'],
+                                method: result['method'],
+                                narration: result['narration'],
+                                warranty: result['warranty'],
+                              );
 
-                            ref.invalidate(invoiceProvider(invoiceId));
+                              ref.invalidate(invoiceProvider(invoiceId));
 
-                            final refresh = ref.read(accountsRefreshProvider);
-                            if (refresh != null) {
-                              refresh();
+                              final refresh = ref.read(accountsRefreshProvider);
+                              if (refresh != null) {
+                                refresh();
+                              }
+                            } catch (e, stack) {
+                              print('ERROR RECORDING PAYMENT: $e\n$stack');
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Failed to save payment: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
                             }
                           }
                         },

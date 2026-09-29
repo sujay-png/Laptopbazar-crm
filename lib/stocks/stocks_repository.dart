@@ -163,8 +163,9 @@ Future<List<VendorModel>> fetchVendors() async {
     String? newCustomerEmail,
     required double salePrice,
     double? paidAmount,
-  String? paymentMethod,
-  String? narration,
+    String? paymentMethod,
+    String? narration,
+    String? warranty,
   }) async {
     ensureModuleEnabled();
 
@@ -261,6 +262,7 @@ Future<List<VendorModel>> fetchVendors() async {
         'payment_amount': paidAmount,
         'payment_mode': paymentMethod,
         'narration': narration,
+        'warranty_period': warranty,
       });
     }
   }
@@ -290,5 +292,41 @@ Future<List<VendorModel>> fetchVendors() async {
         .from('Stock')
         .update({'isSold': true})
         .inFilter('id', stockIds);
+  }
+
+  Future<void> returnInvoiceStock(int invoiceId, {String? reason}) async {
+    ensureModuleEnabled();
+
+    // Step 1: Find stock IDs via invoice_items (stock_ref links stock to invoice)
+    final itemsRes = await client
+        .from('invoice_items')
+        .select('stock_ref')
+        .eq('invoice_ref', invoiceId)
+        .not('stock_ref', 'is', null);
+
+    if ((itemsRes as List).isEmpty) {
+      throw Exception('No stock items found for this invoice.');
+    }
+
+    final stockIds = itemsRes
+        .map((e) => e['stock_ref'] as int)
+        .toList();
+
+    // Step 2: Reset each stock item back to available
+    await client
+        .from('Stock')
+        .update({'isSold': false})
+        .inFilter('id', stockIds);
+
+    // Step 3: Mark invoice as returned and save return reason in invoices_notes
+    final invoiceUpdate = <String, dynamic>{'isCancelled': true};
+    if (reason != null && reason.isNotEmpty) {
+      invoiceUpdate['invoices_notes'] = 'Return reason: $reason';
+    }
+
+    await client
+        .from('Invoices')
+        .update(invoiceUpdate)
+        .eq('id', invoiceId);
   }
 }

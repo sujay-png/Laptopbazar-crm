@@ -17,11 +17,17 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
   final narrationController = TextEditingController();
 
   String? paymentMethod;
+  String? warranty;
   bool _success = false;
 
   late final AnimationController _successController;
 
-  final methods = ['Cash', 'UPI', 'Card'];
+  final methods = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
+  final warrantyperiod = [
+    '1 Month Warranty',
+    '3 Month Warranty',
+    '6 Month Warranty',
+  ];
 
   double get remainingAmount =>
       widget.invoice.grandTotal - widget.invoice.paymentAmount;
@@ -31,6 +37,8 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
   @override
   void initState() {
     super.initState();
+    warranty = widget.invoice.warranty;
+    paymentMethod = widget.invoice.paymentMethod;
     _successController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -85,158 +93,175 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
   // ================= FORM VIEW =================
 
   Widget _formView() => Column(
-        key: const ValueKey('form'),
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _header(),
-          const SizedBox(height: 20),
+    key: const ValueKey('form'),
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _header(),
+      const SizedBox(height: 20),
 
-          _balanceInfo(),
-          const SizedBox(height: 18),
+      _balanceInfo(),
+      const SizedBox(height: 18),
 
-          _dropdown(),
-          const SizedBox(height: 16),
+      _dropdown(),
+      const SizedBox(height: 16),
 
-          _amountField(),
-          const SizedBox(height: 16),
+      _amountField(),
+      const SizedBox(height: 16),
+      _dropdownwarranty(),
+      const SizedBox(height: 16),
 
-          _narrationField(),
-          const SizedBox(height: 20),
+      _narrationField(),
+      const SizedBox(height: 20),
 
-          _timeline(),
-          const SizedBox(height: 26),
+      _timeline(),
+      const SizedBox(height: 26),
 
-          _actions(),
-        ],
-      );
+      _actions(),
+    ],
+  );
 
   // ================= SUCCESS VIEW =================
 
   Widget _successView() => Column(
-        key: const ValueKey('success'),
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ScaleTransition(
-            scale: CurvedAnimation(
-              parent: _successController,
-              curve: Curves.elasticOut,
-            ),
-            child: const Icon(
-              Icons.check_circle,
-              color: Color(0xFF86EFAC),
-              size: 72,
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Payment Recorded',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            remainingAmount <= 0
-                ? 'Invoice fully paid'
-                : 'Remaining balance ₹${remainingAmount.toStringAsFixed(0)}',
-            style: const TextStyle(color: Colors.grey),
-          ),
-        ],
-      );
+    key: const ValueKey('success'),
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      ScaleTransition(
+        scale: CurvedAnimation(
+          parent: _successController,
+          curve: Curves.elasticOut,
+        ),
+        child: const Icon(
+          Icons.check_circle,
+          color: Color(0xFF86EFAC),
+          size: 72,
+        ),
+      ),
+      const SizedBox(height: 16),
+      const Text(
+        'Payment Recorded',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 10),
+      Text(
+        remainingAmount <= 0
+            ? 'Invoice fully paid'
+            : 'Remaining balance ₹${remainingAmount.toStringAsFixed(0)}',
+        style: const TextStyle(color: Colors.grey),
+      ),
+    ],
+  );
 
   // ================= HEADER =================
 
   Widget _header() => Row(
-        children: [
-          const Text(
-            'Record Payment',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.grey),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
-      );
+    children: [
+      const Text(
+        'Record Payment',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
+      ),
+      const Spacer(),
+      IconButton(
+        icon: const Icon(Icons.close, color: Colors.grey),
+        onPressed: () => Navigator.pop(context),
+      ),
+    ],
+  );
 
   // ================= BALANCE =================
 
   Widget _balanceInfo() => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.circular(12),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF1A1A1A),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        Text(
+          'Remaining Balance:',
+          style: TextStyle(color: Colors.grey.shade400),
         ),
-        child: Row(
-          children: [
-            Text(
-              'Remaining Balance:',
-              style: TextStyle(color: Colors.grey.shade400),
-            ),
-            const Spacer(),
-            Text(
-              '₹${remainingAmount.toStringAsFixed(0)}',
-              style: const TextStyle(
-                color: Color(0xFFFACC15),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (!isFullyPaid)
-              TextButton(
-                onPressed: () {
-                  amountController.text =
-                      remainingAmount.toStringAsFixed(0);
-                },
-                child: const Text('Pay Full'),
-              ),
-          ],
+        const Spacer(),
+        Text(
+          '₹${remainingAmount.toStringAsFixed(0)}',
+          style: const TextStyle(
+            color: Color(0xFFFACC15),
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      );
+        if (!isFullyPaid)
+          TextButton(
+            onPressed: () {
+              amountController.text = remainingAmount.toStringAsFixed(0);
+            },
+            child: const Text('Pay Full'),
+          ),
+      ],
+    ),
+  );
 
   // ================= PAYMENT METHOD =================
 
   Widget _dropdown() => DropdownButtonFormField<String>(
-        initialValue: paymentMethod,
-        dropdownColor: const Color(0xFF1A1A1A),
-        decoration: _inputDecoration('Payment Method'),
-        items: methods
-            .map(
-              (m) => DropdownMenuItem(
-                value: m,
-                child: Text(m, style: const TextStyle(color: Colors.white)),
-              ),
-            )
-            .toList(),
-        onChanged: isFullyPaid ? null : (v) => setState(() => paymentMethod = v),
-      );
+    initialValue: paymentMethod,
+    dropdownColor: const Color(0xFF1A1A1A),
+    decoration: _inputDecoration('Payment Method'),
+    items: methods
+        .map(
+          (m) => DropdownMenuItem(
+            value: m,
+            child: Text(m, style: const TextStyle(color: Colors.white)),
+          ),
+        )
+        .toList(),
+    onChanged: isFullyPaid ? null : (v) => setState(() => paymentMethod = v),
+  );
 
   // ================= AMOUNT =================
 
   Widget _amountField() => TextField(
-        controller: amountController,
-        enabled: !isFullyPaid,
-        keyboardType: TextInputType.number,
-        style: const TextStyle(color: Colors.white),
-        decoration: _inputDecoration('Amount', prefix: '₹ '),
-      );
+    controller: amountController,
+    enabled: !isFullyPaid,
+    keyboardType: TextInputType.number,
+    style: const TextStyle(color: Colors.white),
+    decoration: _inputDecoration('Amount', prefix: '₹ '),
+  );
+
+  //================ warranty period=================
+  Widget _dropdownwarranty() => DropdownButtonFormField<String>(
+    initialValue: warranty,
+    dropdownColor: const Color(0xFF1A1A1A),
+    decoration: _inputDecoration('Warranty Period'),
+    items: warrantyperiod
+        .map(
+          (m) => DropdownMenuItem(
+            value: m,
+            child: Text(m, style: const TextStyle(color: Colors.white)),
+          ),
+        )
+        .toList(),
+    onChanged: isFullyPaid ? null : (v) => setState(() => warranty = v),
+  );
 
   // ================= NARRATION =================
 
   Widget _narrationField() => TextField(
-        controller: narrationController,
-        maxLines: 3,
-        enabled: !isFullyPaid,
-        style: const TextStyle(color: Colors.white),
-        decoration: _inputDecoration('Narration (optional)'),
-      );
+    controller: narrationController,
+    maxLines: 3,
+    enabled: !isFullyPaid,
+    style: const TextStyle(color: Colors.white),
+    decoration: _inputDecoration('Narration (optional)'),
+  );
 
   // ================= PAYMENT TIMELINE =================
 
@@ -275,29 +300,29 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
   // ================= ACTIONS =================
 
   Widget _actions() => Row(
-        children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
+    children: [
+      Expanded(
+        child: OutlinedButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Expanded(
+        child: ElevatedButton(
+          onPressed: isFullyPaid ? null : _submit,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFFD54F),
+            foregroundColor: Colors.black,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: isFullyPaid ? null : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFD54F),
-                foregroundColor: Colors.black,
-              ),
-              child: const Text(
-                'Update Payment',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
+          child: const Text(
+            'Update Payment',
+            style: TextStyle(fontWeight: FontWeight.w600),
           ),
-        ],
-      );
+        ),
+      ),
+    ],
+  );
 
   // ================= SUBMIT =================
 
@@ -319,12 +344,16 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
 
     setState(() => _success = true);
     _successController.forward();
+    
+    print('SUBMITTING PAYMENT METHOD: $paymentMethod');
+    print('SUBMITTING WARRANTY: $warranty');
 
     Future.delayed(const Duration(milliseconds: 700), () {
       Navigator.pop(context, {
         'method': paymentMethod,
         'amount': entered,
         'narration': narrationController.text,
+        'warranty': warranty,
       });
     });
   }
@@ -339,9 +368,7 @@ class _RecordPaymentDialogState extends State<RecordPaymentDialog>
       prefixStyle: const TextStyle(color: Colors.white),
       filled: true,
       fillColor: const Color(0xFF1A1A1A),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       focusedBorder: const OutlineInputBorder(
         borderSide: BorderSide(color: Color(0xFFFFD54F)),
       ),
