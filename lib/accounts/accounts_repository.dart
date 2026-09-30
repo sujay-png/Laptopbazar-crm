@@ -44,7 +44,7 @@ class AccountsRepository extends BaseRepository {
         .from('Invoices')
         .select(
           'id, created_at, invoices_no, customer_ref, invoices_date, '
-          'invoices_grandTotal, payment_amount, isCancelled, business_ref',
+          'invoices_grandTotal, payment_amount, isCancelled, business_ref,invoices_notes',
         )
         .eq('business_ref', business.id);
 
@@ -216,7 +216,7 @@ class AccountsRepository extends BaseRepository {
         .from('Invoices')
         .select(
           'id, created_at, invoices_no, customer_ref, invoices_date, '
-          'invoices_grandTotal, payment_amount, isCancelled, business_ref',
+          'invoices_grandTotal, payment_amount, isCancelled, business_ref,invoices_notes',
         )
         .eq('id', invoiceId)
         .eq('business_ref', business.id)
@@ -284,6 +284,7 @@ class AccountsRepository extends BaseRepository {
       'customer_name': customerJson?['customer_name'] ??
           (customerRef == null ? '—' : 'Customer #$customerRef'),
       'customer_phone': customerJson?['customer_phone'],
+      'invoices_notes': invoiceJson['invoices_notes'],
     };
     if (paymentsRes.isNotEmpty) {
       mutableRow['payment_mode'] = paymentsRes[0]['payment_mode'];

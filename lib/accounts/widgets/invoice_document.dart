@@ -169,7 +169,14 @@ class InvoiceDocument extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('TOTAL', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text('₹${invoice.grandTotal.toStringAsFixed(0)}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        const TextSpan(text: '₹', style: TextStyle(fontSize: 16, color: Colors.black)),
+                        TextSpan(text: invoice.grandTotal.toStringAsFixed(0), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black)),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ],

@@ -10,7 +10,7 @@ class InvoiceModel {
   final double? discount;
   final double grandTotal;
   final double paymentAmount;
-
+  final String? notes;
   final List<InvoiceItem> items;
   final bool isCancelled;
   final bool isReturned;
@@ -30,6 +30,7 @@ class InvoiceModel {
     this.warranty,
     this.paymentMethod,
     this.discount,
+    this.notes,
   });
 
   /// ✅ DERIVED STATES (SINGLE SOURCE OF TRUTH)
@@ -70,10 +71,11 @@ class InvoiceModel {
           json['payment_method']?.toString(),
       discount: (json['discount'] as num?)?.toDouble(),
       items: items,
+      notes: json['invoices_notes']?.toString(),
     );
   }
 
-  InvoiceModel copyWith({bool? isCancelled, bool? isReturned}) {
+  InvoiceModel copyWith({bool? isCancelled, bool? isReturned, String? notes}) {
     return InvoiceModel(
       invoiceId: invoiceId,
       customerId: customerId,
@@ -89,6 +91,7 @@ class InvoiceModel {
       warranty: warranty,
       paymentMethod: paymentMethod,
       discount: discount,
+      notes: notes ?? this.notes,
     );
   }
 }

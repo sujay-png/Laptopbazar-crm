@@ -811,7 +811,7 @@ class _AccountsState extends ConsumerState<Accounts> {
           ? fetchedCustomerName!.trim()
           : fallbackName,
     );
-    final notesCtrl = TextEditingController(text: '');
+    final notesCtrl = TextEditingController(text: invoice.notes ?? '');
     final totalCtrl = TextEditingController(
       text: invoice.grandTotal.toStringAsFixed(0),
     );
